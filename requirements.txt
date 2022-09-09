@@ -1,0 +1,5 @@
+networkx>=2.0
+
+Mesa~=0.9.0
+snscrape~=0.4.3.20220106
+pandas~=1.4.1

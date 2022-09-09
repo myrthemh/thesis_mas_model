@@ -1,0 +1,4 @@
+,number_susceptible,number_infected,number_resistant,results_tweets,sustainability_score,infected_low
+0,7900,21,0,20,0.7480116146951142,6
+1,7873,48,0,23,0.7454551193031183,12
+2,7852,69,0,16,0.7434667339982326,13
