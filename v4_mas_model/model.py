@@ -130,6 +130,7 @@ class SocialNetwork(Model):
         self.citizen_initiatives = citizen_initiatives
         self.video = False
 
+        # data that that is saved for further analysis
         self.datacollector = DataCollector(
             {
                 "Infected": number_infected,
@@ -137,7 +138,7 @@ class SocialNetwork(Model):
                 "Recovered": number_resistant,
                 "Sentiment": avg_sentiment,
                 "Tweets Topic": number_tweets,
-                #"Number Signed Petitions": signed_petitions,
+
 
             }
         )
@@ -145,11 +146,9 @@ class SocialNetwork(Model):
         verified_names = 0
         location_names = 0
         frequent_tweeters_names = 0
-        year_i = 0
+
 
         # Create agents
-        # sorting data frame by name
-
         for i, node in enumerate(self.G.nodes()):
             agent_info = df_userinfo[df_userinfo['author_id'] == node]
             location = False
@@ -167,6 +166,7 @@ class SocialNetwork(Model):
             else:
                 number_on_topic = int(agent_info["topic_actions"])
 
+                # save feature values for hypothesis testing
                 if self.verified:
                     if list(agent_info["verified"])[0]:
                         verified = True
@@ -202,6 +202,7 @@ class SocialNetwork(Model):
                 else:
                     popular = False
 
+            # add citizen agents to model
             if node not in citizen_initiative_ids:
 
                 a = CitizenAgent(
@@ -225,8 +226,8 @@ class SocialNetwork(Model):
 
             else:
 
+                # add citizen initiative agents to model
                 if self.citizen_initiatives:
-                   # y_test = self.year[year_i]
                     a = CitizenInitiativeAgent(
                             unique_id=i,
                             model=self,
@@ -243,20 +244,6 @@ class SocialNetwork(Model):
             # Add the agent to the node
             self.grid.place_agent(a, node)
 
-        # if not self.verified:
-        #     for name in verified_names:
-        #         if any([node for node in self.G.nodes(data=True) if node == int(name)]):
-        #             self.G.remove_node(name)
-
-
-            # for name in location_names:
-            #     self.G.remove_node(name)
-        #
-        # if self.most_frequent_users:
-        #     for name in frequent_tweeters_names:
-        #         self.G.remove_node(name)
-
-        print(location_names, verified_names, frequent_tweeters_names)
         # Infect some nodes
         infected_nodes = self.random.sample(self.G.nodes(), self.initial_outbreak_size)
         for a in self.grid.get_cell_list_contents(infected_nodes):
@@ -269,14 +256,7 @@ class SocialNetwork(Model):
         self.running = True
         self.datacollector.collect(self)
 
-    def resistant_susceptible_ratio(self):
-        try:
-            return number_state(self, State.RESISTANT) / number_state(
-                self, State.SUSCEPTIBLE
-            )
-        except ZeroDivisionError:
-            return math.inf
-
+    # enabling policymakers to allow integrating events at specific time
     def external_factor(self):
         if self.citizen_initiatives:
             if self.schedule.steps == 19:
@@ -285,6 +265,7 @@ class SocialNetwork(Model):
                 self.offline_event = True
                 self.video = True
 
+    # define for each step the procedure
     def step(self):
         self.tweets_topic = 0
         self.external_factor()
@@ -300,8 +281,9 @@ class SocialNetwork(Model):
         # collect data
         self.datacollector.collect(self)
 
-        if int(self.schedule.steps) < 160:
+        if int(self.schedule.steps) <= 150:
 
+            # compute the score for each time step
             sustainability_score = 0.75 * (number_susceptible(self) / (number_resistant(self) + number_susceptible(self) + number_infected(self))) + 0.25 * (number_resistant(self) / (number_resistant(self) + number_susceptible(self) + number_infected(self)))
             self.df_results_sir.loc[len(self.df_results_sir.index)] = [str(number_susceptible(self)), str(number_infected(self)), str(number_resistant(self)),
                                                                        self.tweets_topic, sustainability_score, self.infected_low]
@@ -312,11 +294,12 @@ class SocialNetwork(Model):
             if self.offline_event:
                 self.offline_event = False
 
+    # run the model
     def run_model(self, n):
         for i in range(n):
             self.step()
 
-
+# define the citizen agents
 class CitizenAgent(Agent):
     def __init__(
             self,
@@ -339,6 +322,7 @@ class CitizenAgent(Agent):
     ):
         super().__init__(unique_id, model)
 
+        # initialize citizen agents
         self.state = initial_state
         self.type = type
         self.model = model
@@ -370,14 +354,7 @@ class CitizenAgent(Agent):
         self.recovery_count = 0
         self.weak_link = False
 
-
-    def check_weak_link(self):
-        neighbors_nodes = len(list(self.model.grid.get_neighbors(self.pos, include_center=False)))
-
-        if self.number_following > 500 and neighbors_nodes <= 25:
-            self.weak_link = True
-
-
+    # method for infected agents to infect other agents
     def try_to_infect_neighbors(self):
         neighbors_nodes = self.model.grid.get_neighbors(self.pos, include_center=False)
         susceptible_neighbors = [
@@ -395,10 +372,12 @@ class CitizenAgent(Agent):
                 if len(neighbors) < 20:
                     a.model.infected_low += 1
 
+    # recover
     def try_gain_resistance(self):
         if self.random.random() < self.recovery_change:
             self.state = State.RESISTANT
 
+    # at each step infected try to recover
     def try_remove_infection(self):
         # Try to remove
         if self.random.random() < self.recovery_change:
@@ -409,6 +388,7 @@ class CitizenAgent(Agent):
             # Failed
             self.state = State.INFECTED
 
+    # if infect try to recover
     def try_check_situation(self):
         if self.random.random() > self.recovery_change:
             # Checking...
@@ -435,6 +415,7 @@ class CitizenAgent(Agent):
 
         return "TweetTopic"
 
+    # at each time step each agent will observe the environment
     def observe_environment(self):
         b_a = 0
         d_a = 0
@@ -442,7 +423,6 @@ class CitizenAgent(Agent):
         neighbors_nodes = self.model.grid.get_neighbors(self.pos, include_center=False)
         neighbors_nodes = [agent for agent in self.model.grid.get_cell_list_contents(neighbors_nodes)]
 
-        number_neigbors = len(neighbors_nodes)
         try:
             for a in neighbors_nodes:
                 if a.type == "Citizen":
@@ -454,12 +434,11 @@ class CitizenAgent(Agent):
             d = d_a / self.number_following
             u = u_a / self.number_following
 
-            # d = d_a / number_neigbors
-            # u = u_a / number_neigbors
             return b, d, u
         except ZeroDivisionError:
             return 0, 0, 0
 
+    # after selecting an agent update the internal variables of the agent
     def update_variables(self, action):
         if self.state == State.SUSCEPTIBLE and action == "TweetTopic":
             self.state = State.INFECTED
@@ -497,8 +476,6 @@ class CitizenAgent(Agent):
         b = self.influenceable * self.b + (1 - self.influenceable) * b_neighbors
         d = self.influenceable * self.d + (1 - self.influenceable) * d_neighbors
         u = 1 - d - b
-        if self.model.schedule.steps == 1:
-            self.check_weak_link()
 
         if self.model.video:
             b += 0.005 * self.model.budget * self.model.recovery
@@ -531,7 +508,7 @@ class CitizenAgent(Agent):
         if self.state is State.INFECTED:
             self.try_check_situation()
 
-
+# define citizen initiative agents
 class CitizenInitiativeAgent(Agent):
     def __init__(
             self,
@@ -548,12 +525,12 @@ class CitizenInitiativeAgent(Agent):
     ):
         super().__init__(unique_id, model)
 
+        # initialize agents
         self.state = initial_state
         self.model = model
         self.type = type
         self.total_actions = total_actions
         self.number_tweets = number_tweets
-        # self.year = year
 
         participation_score = 1 / (2022-self.model.participation)
         self.prob_event = prob_event * participation_score
@@ -565,6 +542,7 @@ class CitizenInitiativeAgent(Agent):
 
         self.prob_nothing = 1 - self.tweet_frequency - self.prob_event
 
+    # try to infect the citizen agents
     def try_to_infect_neighbors(self):
         neighbors_nodes = self.model.grid.get_neighbors(self.pos, include_center=False)
         susceptible_neighbors = [
@@ -591,6 +569,7 @@ class CitizenInitiativeAgent(Agent):
 
         return "TweetTopic"
 
+    # observe the other agents
     def observe_environment(self):
         b_a = 0
         d_a = 0
@@ -614,6 +593,7 @@ class CitizenInitiativeAgent(Agent):
         except ZeroDivisionError:
             return 0, 0, 0
 
+    # based on the actions update internal variables
     def update_variables(self, action):
         if action == 'TweetTopic':
             self.number_tweets += 1
@@ -625,7 +605,7 @@ class CitizenInitiativeAgent(Agent):
         self.tweet_frequency = self.number_tweets / (
                     self.total_actions)
 
-    # step function
+    # step function for citizen initiative
     def step(self):
 
         random = self.random.random()
