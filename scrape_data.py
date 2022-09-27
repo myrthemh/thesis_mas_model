@@ -2,8 +2,21 @@ import snscrape.modules.twitter as sntwitter
 import pandas as pd
 from collections import Counter
 
+# obtain all related hashtags
+def select_hashtag(h,thr_min, thr_max,broad_hashtags=["utrecht"] ):
+    D = list()
+    hashtags = [h]
+    while len(hashtags)  != 0:
+        h.pop()
+        d = sntwitter.TwitterSearchScraper(h)
+        D.append(d)
+        for hnew in D["hashtags"]:
+            if  hnew  > thr_min:
+                if   hnew < thr_max or hnew in list (broad_hashtags):
+            hashtags.push(hnew)
+    return  hashtags
 
-#link:
+
 # Algorithm 1: obtain all important tweets
 def scrape_tweets(start_query, start_date='2008-01-01', end_date='2022-03-01',
                   threshold=100):
@@ -11,6 +24,8 @@ def scrape_tweets(start_query, start_date='2008-01-01', end_date='2022-03-01',
     tweets_list2 = []
     hashtags = [start_query]
     old_hashtags = []
+
+
 
     # Using TwitterSearchScraper to scrape data and append tweets to list
     while len(hashtags) != 0:
