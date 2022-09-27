@@ -11,4 +11,4 @@ To run the simulation the function *run.py* have to be run.
 A window will open and the different variables can be examined.
 When running the simulation simultanuously a CSV is created saving 
 for each time step the states of the agents and the number of tweets. 
-With the file $compute_score$ the score can be computed and with *plot_data.py* the plots can be saved.
+With the file *compute_score* the score can be computed and with *plot_data.py* the plots can be saved.
