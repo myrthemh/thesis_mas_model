@@ -20,6 +20,10 @@ def number_tweets(model):
     return model.tweets_topic
 
 
+def number_petitions(model):
+    return model.signed_petitions
+
+
 # define the social network
 class SocialNetwork(Model):
     """A information diffusion model with some number of agents"""
@@ -28,22 +32,21 @@ class SocialNetwork(Model):
             self,
             num_nodes=10,
             avg_node_degree=3,
+            initial_outbreak_size=1,
+            recovery_change=0.0006,
             influenceable=0.5,
             tweets_topic=0,
             network=True,
-            verified=True,
-            location=True,
-            most_frequent_users=True,
+            days_infection=3,
+
 
 
 
     ):
-        self.df_results_sir = pd.DataFrame(columns=[
-                                                    'results_tweets'])
 
-        self.verified = verified
-        self.location = location
-        self.most_frequent_users = most_frequent_users
+        self.df_results_sir = pd.DataFrame(columns=['number_susceptible', 'number_infected', 'number_resistant',
+                                                    'results_tweets', 'sustainability_score', 'infected_low'])
+
 
         if network:
             self.G = fb_np
@@ -56,6 +59,11 @@ class SocialNetwork(Model):
 
         self.grid = NetworkGrid(self.G)
         self.schedule = RandomActivation(self)
+
+        self.initial_outbreak_size = (
+            initial_outbreak_size if initial_outbreak_size <= num_nodes else num_nodes
+        )
+
 
         self.influenceable = influenceable
         self.tweets_topic = tweets_topic
@@ -70,10 +78,6 @@ class SocialNetwork(Model):
             }
         )
 
-        verified_names = 0
-        location_names = 0
-        frequent_tweeters_names = 0
-        year_i = 0
 
         # Create agents
         # sorting data frame by name
@@ -95,22 +99,6 @@ class SocialNetwork(Model):
             else:
                 number_on_topic = int(agent_info["topic_actions"])
 
-                if self.verified:
-                    if list(agent_info["verified"])[0]:
-                        verified = True
-                        verified_names = verified_names + 1
-
-                if self.location:
-                    location = list(agent_info["location"])[0]
-                    if type(location) == str:
-                        if re.search(r'(utrecht|utrecht, nederland|utrecht, the netherlands|nieuwegein|zeist|amersfoort)', location.lower()):
-                            location = True
-                            location_names = location_names + 1
-                if self.most_frequent_users:
-                    if number_on_topic > 200:
-                        most_frequent_tweeter = True
-                        frequent_tweeters_names = frequent_tweeters_names + 1
-
                 if number_on_topic < 0:
                     number_on_topic = 0
                 number_off_topic = int(agent_info["twitter_actions"])
@@ -127,11 +115,6 @@ class SocialNetwork(Model):
                     number_on_topic=number_on_topic,
                     number_off_topic=number_off_topic,
                     number_not_tweet=max(0, total_actions-number_off_topic-number_on_topic),
-                    location=location,
-                    verified=verified,
-                    number_following=number_followers,
-                    most_frequent_tweeter=most_frequent_tweeter,
-
                 )
                 self.schedule.add(a)
 
@@ -152,14 +135,14 @@ class SocialNetwork(Model):
         #     for name in frequent_tweeters_names:
         #         self.G.remove_node(name)
 
-
+            # Infect some nodes
         self.running = True
         self.datacollector.collect(self)
 
 
-
     def step(self):
         self.tweets_topic = 0
+
         self.schedule.step()
 
         # collect data
@@ -167,10 +150,9 @@ class SocialNetwork(Model):
 
         if int(self.schedule.steps) < 160:
 
-            self.df_results_sir.loc[len(self.df_results_sir.index)] = [self.tweets_topic]
 
             self.df_results_sir.to_csv(
-                f"{config.path_version2}/sir_results_INFL{str(self.influenceable)[2:]}_LOC{self.location}_MFT{self.most_frequent_users}_VER{self.verified}.csv")
+                f"{config.path_version4}/sir_results_INFL{str(self.influenceable)[2:]}.csv")
 
 
     def run_model(self, n):
@@ -183,6 +165,8 @@ class CitizenAgent(Agent):
             self,
             unique_id,
             model,
+            initial_state,
+            recovery_change,
             influenceable,
             number_on_topic,
             number_off_topic,
@@ -196,6 +180,7 @@ class CitizenAgent(Agent):
     ):
         super().__init__(unique_id, model)
 
+        self.state = initial_state
         self.type = type
         self.model = model
 
@@ -221,8 +206,45 @@ class CitizenAgent(Agent):
         self.d = self.tweet_frequency * (1 - self.tweet_topic_frequency)
         self.u = 1 - self.d - self.b
         self.influenceable = influenceable
+        self.recovery_change = recovery_change
+        self.recovery_count = 0
 
+    def try_to_infect_neighbors(self):
+        neighbors_nodes = self.model.grid.get_neighbors(self.pos, include_center=False)
+        susceptible_neighbors = [
+            agent
+            for agent in self.model.grid.get_cell_list_contents(neighbors_nodes)
+            if agent.state is State.SUSCEPTIBLE
+        ]
+        for a in susceptible_neighbors:
+            x = self.random.random()
+            #
+            if x < self.influenceable:
+                a.state = State.INFECTED
+                neighbors = a.model.grid.get_neighbors(a.pos, include_center=False)
 
+                if len(neighbors) < 20:
+                    a.model.infected_low += 1
+
+    def try_gain_resistance(self):
+        if self.random.random() < self.recovery_change:
+            self.state = State.RESISTANT
+
+    def try_remove_infection(self):
+        # Try to remove
+        if self.random.random() < self.recovery_change:
+            # Success
+            self.state = State.SUSCEPTIBLE
+            self.try_gain_resistance()
+        else:
+            # Failed
+            self.state = State.INFECTED
+
+    def try_check_situation(self):
+        if self.random.random() > self.recovery_change:
+            # Checking...
+            if self.state is State.INFECTED:
+                self.try_remove_infection()
 
     def do_nothing(self):
         return "DoNothing"
@@ -237,6 +259,10 @@ class CitizenAgent(Agent):
     def tweet_topic(self):
 
         self.model.tweets_topic += 1
+
+        if self.random.random() < self.b:
+            self.try_to_infect_neighbors()
+        self.try_check_situation()
 
         return "TweetTopic"
 
@@ -255,9 +281,9 @@ class CitizenAgent(Agent):
                     d_a += a.d
                     u_a += a.u
 
-            b = b_a / number_neigbors#self.number_following
-            d = d_a / number_neigbors#self.number_following
-            u = u_a / number_neigbors#self.number_following
+            b = b_a / self.number_following
+            d = d_a / self.number_following
+            u = u_a / self.number_following
 
             # d = d_a / number_neigbors
             # u = u_a / number_neigbors
@@ -266,6 +292,16 @@ class CitizenAgent(Agent):
             return 0, 0, 0
 
     def update_variables(self, action):
+        if self.state == State.SUSCEPTIBLE and action == "TweetTopic":
+            self.state = State.INFECTED
+            neighbors = self.model.grid.get_neighbors(self.pos, include_center=False)
+
+            if len(neighbors) < 20:
+                self.model.infected_low += 1
+
+        if self.state == State.INFECTED and self.b < self.recovery_change:
+            if self.random.random() < self.recovery_change:
+                self.state = State.RESISTANT
 
         if action == 'TweetTopic':
             self.number_on_topic += 1
@@ -293,6 +329,13 @@ class CitizenAgent(Agent):
         d = self.influenceable * self.d + (1 - self.influenceable) * d_neighbors
         u = 1 - d - b
 
+        if self.model.video:
+            b += 0.005 * self.model.budget * self.model.recovery
+            d -= 0.005 * self.model.budget * self.model.recovery
+
+        else:
+            b += 0.005 * self.model.budget * 0.25 * self.model.recovery
+            d -= 0.005 * self.model.budget * 0.25 * self.model.recovery
 
         b = max(0, b)
         d = max(0, d)
@@ -301,13 +344,17 @@ class CitizenAgent(Agent):
         random = self.random.random()
 
         if random < b:
-            if self.location or self.verified or self.most_frequent_tweeter:
+            if self.state == State.RESISTANT or self.location or self.verified or self.most_frequent_tweeter:
                 action = self.tweet_other()
             else:
                 action = self.tweet_topic()
+        elif self.model.video:
+            action = self.sign_petition()
         else:
             action = self.do_nothing()
 
         self.update_variables(action)
 
+        if self.state is State.INFECTED:
+            self.try_check_situation()
 

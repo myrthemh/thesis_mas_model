@@ -5,7 +5,7 @@ from mesa.visualization.UserParam import UserSettableParameter
 from mesa.visualization.modules import ChartModule
 from mesa.visualization.modules import NetworkModule
 from mesa.visualization.modules import TextElement
-from .model import SocialNetwork
+from .model import SocialNetwork, State, number_infected
 
 
 def network_portrayal(G):
@@ -79,8 +79,29 @@ chart3 = ChartModule(
 )
 
 
+chart2 = ChartModule(
+    [
+        {"Label": "Infected", "Color": "#FF0000"},
+        {"Label": "Susceptible", "Color": "#008000"},
+        {"Label": "Recovered", "Color": "#808080"},
+    ]
+)
+
+
+class MyTextElement(TextElement):
+    def render(self, model):
+        ratio = model.resistant_susceptible_ratio()
+        ratio_text = "&infin;" if ratio is math.inf else f"{ratio:.2f}"
+        infected_text = str(number_infected(model))
+
+        return "Recovered/Susceptible Ratio: {}<br>Infected Remaining: {}".format(
+            ratio_text, infected_text
+        )
+
 
 model_params = {
+
+
 
     "network": UserSettableParameter("checkbox", "Real-word network based", True),
     "num_nodes": UserSettableParameter(
@@ -108,12 +129,6 @@ model_params = {
         0.05,
         description="Choose to what degree the agents are influenced by the actions of the other agents",
     ),
-
-    "verified": UserSettableParameter("checkbox", "Verified accounts excluded", False),
-
-    "location": UserSettableParameter("checkbox", "Location excluded", False),
-
-    "most_frequent_users": UserSettableParameter("checkbox", "Most frequent users excluded", False),
 
 
     # "avg_node_degree": UserSettableParameter(
@@ -147,6 +162,6 @@ chart = ChartModule(
 
 #network
 server = ModularServer(
-    SocialNetwork, [chart3], "Tweet Topic Model - Version 2", model_params
+    SocialNetwork, [chart3, chart2], "Tweet Topic Model - Version 4", model_params
 )
 server.port = 8521
